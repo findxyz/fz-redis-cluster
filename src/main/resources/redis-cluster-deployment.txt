@@ -1,4 +1,3 @@
-redis cluster
 1.wget https://github.com/antirez/redis/archive/5.0.4.tar.gz
 
 2.tar -zxvf 5.0.4.tar.gz
