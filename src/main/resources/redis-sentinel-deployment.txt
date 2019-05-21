@@ -1,0 +1,64 @@
+1.redis 5 master replica config
+redis.conf
+-master
+=== bind 192.168.1.22
+=== port 6379
+=== pidfile /var/run/redis_6379.pid
+=== dir /opt/redis-sentinel/6379/data/
+=== logfile /var/log/redis/redis_6379.log
+=== min-replicas-to-write 1
+=== min-replicas-max-lag 10
+=== daemonize yes
+=== [requirepass PASSWORD]
+=== [masterauth PASSWORD]
+-replica
+=== bind 192.168.1.22
+=== port 6380
+=== replicaof 192.168.1.22 6379
+=== pidfile /var/run/redis_6380.pid
+=== dir /opt/redis-sentinel/6380/data/
+=== logfile /var/log/redis/redis_6380.log
+=== min-replicas-to-write 1
+=== min-replicas-max-lag 10
+=== daemonize yes
+=== [requirepass PASSWORD]
+=== [masterauth PASSWORD]
+1.1.start redis master replica
+cd /opt/redis-sentinel/
+redis-server ./6379/redis-6379.conf
+redis-server ./6380/redis-6380.conf
+1.2.info
+192.168.1.22:6379> info replication
+1.3.role
+192.168.1.22:6379> role
+
+2.redis 5 sentinel config
+sentinel.config
+=== port 26379
+=== [requirepass PASSWORD] (since redis 5.0.1, [spring boot 2.1.8 still not work])
+=== daemonize yes
+=== pidfile /var/run/redis-sentinel_26379.pid
+=== logfile /var/log/redis/redis-sentinel_26379.log
+=== sentinel monitor mymaster 192.168.1.22 6379 2
+=== [sentinel auth-pass mymaster PASSWORD]
+=== sentinel down-after-milliseconds mymaster 5000
+=== sentinel failover-timeout mymaster 60000
+=== sentinel parallel-syncs mymaster 1
+2.1.start redis sentinel
+cd /opt/redis-sentinel
+redis-sentinel ./26379/sentinel-26379.conf
+redis-sentinel ./26380/sentinel-26380.conf
+redis-sentinel ./26381/sentinel-26381.conf
+2.2.sentinel commands
+192.168.1.22:26379> sentinel master mymaster
+192.168.1.22:26379> sentinel replicas mymaster
+192.168.1.22:26379> sentinel sentinels mymaster
+192.168.1.22:26379> sentinel get-master-addr-by-name mymaster
+1) "127.0.0.1"
+2) "6379"
+
+3.test the failover
+redis-cli -h 192.168.1.22 -p 6379 [-a PASSWORD] DEBUG sleep 30
+
+4.benchmark
+redis-benchmark -h 192.168.1.22 -p 6379 -q [-a PASSWORD]

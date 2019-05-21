@@ -1,0 +1,110 @@
+redis cluster
+1.wget https://github.com/antirez/redis/archive/5.0.4.tar.gz
+
+2.tar -zxvf 5.0.4.tar.gz
+
+3.yum groupinstall 'Development Tools'
+
+4.cd redis-5.0.4 && make
+4.1.copy src/redis-server /bin
+4.2.copy src/redis-cli /bin
+
+5.cd /opt/redis-cluster && mkdir 7000/data 7001/data 7002/data 7003/data 7004/data 7005/data -p
+
+6.edit redis.conf
+=== bind 192.168.1.22
+=== port 7000
+=== pidfile /var/run/redis_7000.pid
+=== dir /opt/redis-cluster/7000/data/
+=== cluster-config-file nodes-7000.conf
+=== logfile /var/log/redis/redis_7000.log
+=== daemonize yes
+=== cluster-enabled yes
+=== cluster-node-timeout 15000
+=== appendonly yes
+=== [requirepass PASSWORD]
+=== [masterauth PASSWORD]
+
+7.start redis
+cd /opt/redis-cluster && redis-server ./7000/redis-7000.conf
+
+8.create redis cluster (for 5† https://redis.io/topics/cluster-tutorial)
+redis-cli --cluster create 192.168.1.22:7000 192.168.1.22:7001 \
+192.168.1.22:7002 192.168.1.22:7003 192.168.1.22:7004 192.168.1.22:7005 \
+--cluster-replicas 1 [-a PASSWORD]
+>>> M: 3d4625bb435fd3d6d107b7d2f2fb62f43cc9e990 192.168.1.22:7000 slots:[0-5460] (5461 slots) master
+>>> M: d87f191b32da73d3bab0af8dae95690eee3509b8 192.168.1.22:7001 slots:[5461-10922] (5462 slots) master
+>>> M: 2d904e4883bdd0b2c2b98ba764af0bf38190df85 192.168.1.22:7002 slots:[10923-16383] (5461 slots) master
+>>> S: a4ca403dd4334d6653a1915e09f73f52bb8a853e 192.168.1.22:7003 replicates 2d904e4883bdd0b2c2b98ba764af0bf38190df85
+>>> S: 12b0774284d1a5e574e0c1c7ed0976194642e75a 192.168.1.22:7004 replicates 3d4625bb435fd3d6d107b7d2f2fb62f43cc9e990
+>>> S: c4950e96b3b08c26e45426b4002205e28d6697b8 192.168.1.22:7005 replicates d87f191b32da73d3bab0af8dae95690eee3509b8
+>>> Can I set the above configuration? (type 'yes' to accept): yes
+
+9.connect redis cluster
+redis-cli -c -h 192.168.1.22 -p 7000 [-a PASSWORD] (any one)
+
+10.test the failover
+redis-cli -h 192.168.1.22 -p 7002 debug segfault
+redis-cli -h 192.168.1.22 -p 7001 cluster nodes
+>>> c4950e96b3b08c26e45426b4002205e28d6697b8 192.168.1.22:7005@17005 slave d87f191b32da73d3bab0af8dae95690eee3509b8 0 1557899191441 2 connected
+>>> 2d904e4883bdd0b2c2b98ba764af0bf38190df85 192.168.1.22:7002@17002 master,fail - 1557899121448 1557899119000 3 disconnected
+>>> d87f191b32da73d3bab0af8dae95690eee3509b8 192.168.1.22:7001@17001 myself,master - 0 1557899190000 2 connected 5461-10922
+>>> 12b0774284d1a5e574e0c1c7ed0976194642e75a 192.168.1.22:7004@17004 slave 3d4625bb435fd3d6d107b7d2f2fb62f43cc9e990 0 1557899188422 5 connected
+>>> a4ca403dd4334d6653a1915e09f73f52bb8a853e 192.168.1.22:7003@17003 master - 0 1557899188000 7 connected 10923-16383
+>>> 3d4625bb435fd3d6d107b7d2f2fb62f43cc9e990 192.168.1.22:7000@17000 master - 0 1557899190433 1 connected 0-5460
+cd /opt/redis-cluster && redis-server ./7002/redis-7002.conf
+redis-cli -h 192.168.1.22 -p 7001 cluster nodes
+>>> c4950e96b3b08c26e45426b4002205e28d6697b8 192.168.1.22:7005@17005 slave d87f191b32da73d3bab0af8dae95690eee3509b8 0 1557899445688 2 connected
+>>> 2d904e4883bdd0b2c2b98ba764af0bf38190df85 192.168.1.22:7002@17002 slave a4ca403dd4334d6653a1915e09f73f52bb8a853e 0 1557899443680 7 connected
+>>> d87f191b32da73d3bab0af8dae95690eee3509b8 192.168.1.22:7001@17001 myself,master - 0 1557899444000 2 connected 5461-10922
+>>> 12b0774284d1a5e574e0c1c7ed0976194642e75a 192.168.1.22:7004@17004 slave 3d4625bb435fd3d6d107b7d2f2fb62f43cc9e990 0 1557899444685 5 connected
+>>> a4ca403dd4334d6653a1915e09f73f52bb8a853e 192.168.1.22:7003@17003 master - 0 1557899444000 7 connected 10923-16383
+>>> 3d4625bb435fd3d6d107b7d2f2fb62f43cc9e990 192.168.1.22:7000@17000 master - 0 1557899446693 1 connected 0-5460
+
+11.add new node as replica
+# a random master among the masters with less replicas
+redis-cli --cluster add-node 192.168.1.22:7006 192.168.1.22:7000 --cluster-slave
+redis-cli -h 192.168.1.22 -p 7000 cluster nodes
+>>> 1e4800a54f673eec00ccc2a05535f63af46f4375 192.168.1.22:7006@17006 slave 3d4625bb435fd3d6d107b7d2f2fb62f43cc9e990 0 1557997200047 12 connected
+>>> d87f191b32da73d3bab0af8dae95690eee3509b8 192.168.1.22:7001@17001 master - 0 1557997198000 13 connected 5461-10922
+>>> c4950e96b3b08c26e45426b4002205e28d6697b8 192.168.1.22:7005@17005 slave d87f191b32da73d3bab0af8dae95690eee3509b8 0 1557997198039 13 connected
+>>> a4ca403dd4334d6653a1915e09f73f52bb8a853e 192.168.1.22:7003@17003 slave 2d904e4883bdd0b2c2b98ba764af0bf38190df85 0 1557997199042 10 connected
+>>> 3d4625bb435fd3d6d107b7d2f2fb62f43cc9e990 192.168.1.22:7000@17000 myself,master - 0 1557997197000 12 connected 0-5460
+>>> 12b0774284d1a5e574e0c1c7ed0976194642e75a 192.168.1.22:7004@17004 slave 3d4625bb435fd3d6d107b7d2f2fb62f43cc9e990 0 1557997197035 12 connected
+>>> 2d904e4883bdd0b2c2b98ba764af0bf38190df85 192.168.1.22:7002@17002 master - 0 1557997197000 10 connected 10923-16383
+# you can specify exactly what master you want to target with your new replica
+redis-cli --cluster add-node 192.168.1.22:7007 192.168.1.22:7000 --cluster-slave --cluster-master-id 3d4625bb435fd3d6d107b7d2f2fb62f43cc9e990
+redis-cli -h 192.168.1.22 -p 7000 cluster nodes
+>>> 1e4800a54f673eec00ccc2a05535f63af46f4375 192.168.1.22:7006@17006 slave 3d4625bb435fd3d6d107b7d2f2fb62f43cc9e990 0 1557997236176 12 connected
+>>> d87f191b32da73d3bab0af8dae95690eee3509b8 192.168.1.22:7001@17001 master - 0 1557997234000 13 connected 5461-10922
+>>> c4950e96b3b08c26e45426b4002205e28d6697b8 192.168.1.22:7005@17005 slave d87f191b32da73d3bab0af8dae95690eee3509b8 0 1557997237178 13 connected
+>>> bb070da99427f1213dfb3b5d428cb4430c7d086e 192.168.1.22:7007@17007 slave 3d4625bb435fd3d6d107b7d2f2fb62f43cc9e990 0 1557997234231 12 connected
+>>> a4ca403dd4334d6653a1915e09f73f52bb8a853e 192.168.1.22:7003@17003 slave 2d904e4883bdd0b2c2b98ba764af0bf38190df85 0 1557997238182 10 connected
+>>> 3d4625bb435fd3d6d107b7d2f2fb62f43cc9e990 192.168.1.22:7000@17000 myself,master - 0 1557997236000 12 connected 0-5460
+>>> 12b0774284d1a5e574e0c1c7ed0976194642e75a 192.168.1.22:7004@17004 slave 3d4625bb435fd3d6d107b7d2f2fb62f43cc9e990 0 1557997237000 12 connected
+>>> 2d904e4883bdd0b2c2b98ba764af0bf38190df85 192.168.1.22:7002@17002 master - 0 1557997236000 10 connected 10923-16383
+# switch slave(7007) to master(7001)
+redis-cli -h 192.168.1.22 -p 7007 cluster replicate d87f191b32da73d3bab0af8dae95690eee3509b8
+redis-cli -h 192.168.1.22 -p 7000 cluster nodes
+>>> 1e4800a54f673eec00ccc2a05535f63af46f4375 192.168.1.22:7006@17006 slave 3d4625bb435fd3d6d107b7d2f2fb62f43cc9e990 0 1557997464976 12 connected
+>>> d87f191b32da73d3bab0af8dae95690eee3509b8 192.168.1.22:7001@17001 master - 0 1557997464000 13 connected 5461-10922
+>>> c4950e96b3b08c26e45426b4002205e28d6697b8 192.168.1.22:7005@17005 slave d87f191b32da73d3bab0af8dae95690eee3509b8 0 1557997465000 13 connected
+>>> bb070da99427f1213dfb3b5d428cb4430c7d086e 192.168.1.22:7007@17007 slave d87f191b32da73d3bab0af8dae95690eee3509b8 0 1557997465979 13 connected
+>>> a4ca403dd4334d6653a1915e09f73f52bb8a853e 192.168.1.22:7003@17003 slave 2d904e4883bdd0b2c2b98ba764af0bf38190df85 0 1557997462000 10 connected
+>>> 3d4625bb435fd3d6d107b7d2f2fb62f43cc9e990 192.168.1.22:7000@17000 myself,master - 0 1557997466000 12 connected 0-5460
+>>> 12b0774284d1a5e574e0c1c7ed0976194642e75a 192.168.1.22:7004@17004 slave 3d4625bb435fd3d6d107b7d2f2fb62f43cc9e990 0 1557997466983 12 connected
+>>> 2d904e4883bdd0b2c2b98ba764af0bf38190df85 192.168.1.22:7002@17002 master - 0 1557997465000 10 connected 10923-16383
+
+12.remove a node
+redis-cli --cluster del-node 192.168.1.22:7000 bb070da99427f1213dfb3b5d428cb4430c7d086e
+
+13.reshard the cluster
+redis-cli [-a PASSWORD] \
+--cluster reshard 192.168.1.22:7006 \
+--cluster-from 0bec7d205ffcc9162dddd31c8fbad884d5d9adb1 \
+--cluster-to 9eb9045121d693dd3ef379384cf3bcfdb17d540b \
+--cluster-slots 1000 \
+--cluster-yes
+
+14.benchmark
+redis-benchmark -h 192.168.1.22 -p 7000 -q [-a PASSWORD]
